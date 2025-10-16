@@ -123,4 +123,4 @@ def run(file_path: str):
                 print(f"\n{explanation}")
 
 
-run("/Users/tyleremanuel/Documents/Bench/a11y-agent/agent/test.tsx")
+run("./test.tsx")
