@@ -55,6 +55,9 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
     1. Nested labels: <label>Label text <input /></label>
     2. aria-label: <input aria-label="Label text" />
     - Avoid using htmlFor/id pattern as it's not recognized by the linter
+    
+    **Important for images:**
+    - Never use words like "image", "photo", or "picture" in alt text - screen readers already announce the element type
     """
 
     EXAMPLES = r"""

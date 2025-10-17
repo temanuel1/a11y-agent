@@ -15,50 +15,59 @@ def group_issues_intelligently(issues, file_path):
     with open(file_path, "r") as f:
         file_content = f.read()
     
-    # TODO: Improve prompt (like the one in tools.py)
-    prompt = f"""
-    You are analyzing accessibility issues in a React component. Your job is to intelligently group related 
-    issues that should be fixed together.
+    prompt = f"""You are analyzing accessibility issues in a React component. Your job is to intelligently group related 
+issues that should be fixed together.
 
-    <file>
-        {file_content}
-    </file>
+<file>
+{file_content}
+</file>
 
-    <issues>
-        {chr(10).join([f"{i+1}. {issue}" for i, issue in enumerate(issues)])}
-    </issues>
+<issues>
+{chr(10).join([f"{i+1}. {issue}" for i, issue in enumerate(issues)])}
+</issues>
 
-    Group these issues intelligently based on:
-    1. Issues affecting the same element (even if on different lines, like a label and its input)
-    2. Issues that are semantically related and should be fixed together
-    3. Issues where fixing one might affect or conflict with another
+Group these issues intelligently based on:
+1. Issues affecting the same element (even if on different lines, like a label and its input)
+2. Issues that are semantically related and should be fixed together
+3. Issues where fixing one might affect or conflict with another
 
-    Return your grouping as a JSON array of arrays, where each inner array contains the issue numbers that should be fixed together.
-    For example: [[1, 2], [3], [4, 5]] means issues 1&2 should be fixed together, issue 3 alone, and issues 4&5 together.
-
-    Only return the JSON array, nothing else.
-    """
+Use the group_issues tool to return your grouping."""
 
     response = anthropic.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1024,
+        max_tokens=4096,
         temperature=0,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
+        tools=[
+            {
+                "name": "group_issues",
+                "description": "Group related accessibility issues that should be fixed together",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "groups": {
+                            "type": "array",
+                            "description": "Array of issue groups, where each group is an array of issue numbers",
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "type": "integer",
+                                    "description": "Issue number (1-indexed)"
+                                }
+                            }
+                        }
+                    },
+                    "required": ["groups"]
+                }
+            }
+        ],
+        tool_choice={"type": "tool", "name": "group_issues"}
     )
     
     try:
-        response_text = response.content[0].text.strip()
+        tool_use = next(block for block in response.content if block.type == "tool_use")
+        groupings = tool_use.input["groups"]
         
-        # remove markdown code blocks if present
-        if "```" in response_text:
-            response_text = response_text.split("```")[1]
-            if response_text.startswith("json"):
-                response_text = response_text[4:]
-        response_text = response_text.strip()
-        
-        groupings = json.loads(response_text)
-        
-        # convert issue numbers back to actual issues
         grouped_issues = []
         for group in groupings:
             issue_group = [issues[i-1] for i in group]
@@ -67,7 +76,6 @@ def group_issues_intelligently(issues, file_path):
         return grouped_issues
         
     except Exception as e:
-        # fallback: each issue separately
         return [[issue] for issue in issues]
 
 
@@ -84,34 +92,27 @@ def run(file_path: str):
     """
     Fully automated a11y pipeline that directly updates the input file
     """
-    # backup original file
     with open(file_path, "r") as f:
         original_content = f.read()
     backup_path = file_path.replace(".tsx", "_old.tsx").replace(".jsx", "_old.jsx")
     with open(backup_path, "w") as f:
         f.write(original_content)
 
-    # get all issues and formatted code
     issues, formatted_file = get_a11y_issues(file_path)
 
     if not issues:
         return formatted_file
 
-    # write formatted version to file
     with open(file_path, "w") as f:
         f.write(formatted_file)
 
-    # intelligently group related issues
     issue_groups = group_issues_intelligently(issues, file_path)
     
-    # fix each group together
     for i, issue_group in enumerate(issue_groups):
         combined_issues = "\n".join(issue_group)
         
-        # get fix for current state of the file
         fix_response = suggest_a11y_fix(file_path, combined_issues)
 
-        # extract and apply the fixed content
         fixed_content = extract_tag_content(fix_response, "file")
         
         if fixed_content:
@@ -123,4 +124,5 @@ def run(file_path: str):
                 print(f"\n{explanation}")
 
 
-run("./test.tsx")
+if __name__ == "__main__":
+    run("./test.tsx")

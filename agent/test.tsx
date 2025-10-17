@@ -1,15 +1,10 @@
 const TestComponent = () => {
-  const handleClick = () => {
-    console.log("clicked");
-  };
-
   return (
     <div>
-      <img src="logo.png" />
-      <div onClick={handleClick}>Click me</div>
-      <input type="text" />
+      <img src="logo.png" alt="Company logo" />
+      <button onClick={() => alert("hi")}>Click</button>
+      <input type="text" aria-label="Text input" />
     </div>
   );
 };
-
 export default TestComponent;
