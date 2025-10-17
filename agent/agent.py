@@ -15,23 +15,25 @@ def group_issues_intelligently(issues, file_path):
     with open(file_path, "r") as f:
         file_content = f.read()
     
-    prompt = f"""You are analyzing accessibility issues in a React component. Your job is to intelligently group related 
-issues that should be fixed together.
+    prompt = f"""
+    You are analyzing accessibility issues in a React component. Your job is to intelligently group related 
+    issues that should be fixed together.
 
-<file>
-{file_content}
-</file>
+    <file>
+        {file_content}
+    </file>
 
-<issues>
-{chr(10).join([f"{i+1}. {issue}" for i, issue in enumerate(issues)])}
-</issues>
+    <issues>
+        {chr(10).join([f"{i+1}. {issue}" for i, issue in enumerate(issues)])}
+    </issues>
 
-Group these issues intelligently based on:
-1. Issues affecting the same element (even if on different lines, like a label and its input)
-2. Issues that are semantically related and should be fixed together
-3. Issues where fixing one might affect or conflict with another
+    Group these issues intelligently based on:
+    1. Issues affecting the same element (even if on different lines, like a label and its input)
+    2. Issues that are semantically related and should be fixed together
+    3. Issues where fixing one might affect or conflict with another
 
-Use the group_issues tool to return your grouping."""
+    Use the group_issues tool to return your grouping.
+    """
 
     response = anthropic.messages.create(
         model="claude-sonnet-4-20250514",
