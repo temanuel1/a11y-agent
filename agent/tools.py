@@ -16,7 +16,7 @@ load_dotenv()
 anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
-# Takes in a filepath and an a11y issue and returns a suggested fix
+# takes in a filepath and an a11y issue and returns a suggested fix
 def suggest_a11y_fixes(filepath: str, a11y_issues: list[str]):
 
     with open(filepath, "r") as f:
@@ -253,17 +253,15 @@ def suggest_a11y_fixes(filepath: str, a11y_issues: list[str]):
 
     response_text = response.content[0].text
 
-    # Extract and print grouping analysis
+    # extract and print grouping analysis
     grouping_match = re.search(r'<grouping>(.*?)</grouping>', response_text, re.DOTALL)
     if grouping_match:
-        print("\n=== Issue Grouping Analysis ===")
         print(grouping_match.group(1).strip())
-        print("=" * 40 + "\n")
 
     return response_text
 
 
-# Takes in a filepath and returns a list of a11y issues from linter
+# takes in a filepath and returns a list of a11y issues from linter
 def get_a11y_issues(filepath: str):
     """
     Takes in a TSX/JSX file path and returns a list of accessibility issues
@@ -274,7 +272,7 @@ def get_a11y_issues(filepath: str):
         formatted_file (str): Prettier-formatted file contents
     """
     try:
-        # Format the file with Prettier first
+        # format the file with Prettier first
         with open(filepath, "r") as f:
             rawfile = f.read().strip()
 
@@ -286,7 +284,7 @@ def get_a11y_issues(filepath: str):
         )
         formatted_file = prettier_process.stdout.decode("utf-8")
 
-        # Run ESLint directly on file
+        # run ESLint directly on file
         eslint_process = subprocess.run(
             ["npx", "eslint", filepath, "-f", "json"],
             capture_output=True,
@@ -294,20 +292,20 @@ def get_a11y_issues(filepath: str):
             check=False,
         )
 
-        # Parse ESLint JSON output
+        # parse ESLint JSON output
         issues = []
         if eslint_process.stdout:
             eslint_results = json.loads(eslint_process.stdout)
 
-            # Extract issues from the first file
+            # extract issues from the first file
             if eslint_results and len(eslint_results) > 0:
                 file_result = eslint_results[0]
                 messages = file_result.get("messages", [])
 
-                # Filter for a11y issues and format them
+                # filter for a11y issues and format them
                 for msg in messages:
                     if msg.get("ruleId", "").startswith("jsx-a11y/"):
-                        # Format like ESLint's normal output
+                        # format like ESLint's normal output
                         issue_str = f"{msg['line']}:{msg['column']}  error  {msg['message']}  {msg['ruleId']}"
                         issues.append(issue_str)
 
@@ -404,23 +402,23 @@ def map_lighthouse_to_source(lighthouse_issues, tsx_source_code):
     
     response_text = response.content[0].text
     
-    # Extract JSON from response
+    # extract JSON from response
     json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
     if json_match:
         try:
             mapped_issues = json.loads(json_match.group(0))
             
-            # Log for debugging
-            print(f"\n[DEBUG] LLM mapped {len(mapped_issues)} issues")
+            # log for debugging
+            print(f"\n[debug] LLM mapped {len(mapped_issues)} issues")
             for issue in mapped_issues:
-                print(f"  Line {issue.get('line')}: {issue.get('rule')}")
+                print(f"  line {issue.get('line')}: {issue.get('rule')}")
             
             return mapped_issues
         except json.JSONDecodeError as e:
-            print(f"Error: Could not parse LLM response as JSON: {e}")
+            print(f"error: could not parse LLM response as JSON: {e}")
             return []
     
-    print("Error: No JSON array found in LLM response")
+    print("error: no JSON array found in LLM response")
     return []
 
 def normalize_lighthouse_issues(mapped_issues):
@@ -443,24 +441,24 @@ def get_lighthouse_issues(tsx_file_path):
     High-level function that orchestrates everything.
     Similar to get_a11y_issues() but for runtime analysis.
     """
-    # Import server function
+    # import server function
     import sys
     sys.path.append('../server')
     
-    # Run lighthouse (returns raw JSON)
+    # run lighthouse (returns raw JSON)
     lighthouse_json = run_lighthouse_analysis()
     
-    # Parse failures
+    # parse failures
     failed_audits = parse_lighthouse_results(lighthouse_json)
     
-    # Read TSX source
+    # read TSX source
     with open(tsx_file_path, 'r') as f:
         tsx_source = f.read()
     
-    # Map to lines
+    # map to lines
     mapped_issues = map_lighthouse_to_source(failed_audits, tsx_source)
     
-    # Normalize to linter format
+    # normalize to linter format
     normalized_issues = normalize_lighthouse_issues(mapped_issues)
     
     return normalized_issues

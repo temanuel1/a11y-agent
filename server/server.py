@@ -12,8 +12,8 @@ def run_lighthouse_analysis(port=5173):
     server_process = None
     
     try:
-        # Start Vite dev server
-        print(f"Starting Vite dev server on port {port}...")
+        # start vite dev server
+        print(f"starting vite dev server on port {port}...")
         server_process = subprocess.Popen(
             ["npx", "vite", "--port", str(port)],
             cwd=os.path.join(os.path.dirname(__file__), "template"),
@@ -21,12 +21,12 @@ def run_lighthouse_analysis(port=5173):
             stderr=subprocess.PIPE
         )
         
-        # Wait for server to be ready
-        print("Waiting for server to start...")
-        time.sleep(3)  # Give it time to start
+        # wait for server to be ready
+        print("waiting for server to start...")
+        time.sleep(3)  # give it time to start
         
-        # Run Lighthouse
-        print("Running Lighthouse analysis...")
+        # run lighthouse
+        print("running lighthouse analysis...")
         lighthouse_output_path = os.path.join(
             os.path.dirname(__file__),
             "../.lighthouse-reports/lighthouse-results.json"
@@ -51,7 +51,7 @@ def run_lighthouse_analysis(port=5173):
             print(f"Lighthouse error: {lighthouse_process.stderr}")
             return None
         
-        # Read results
+        # read results
         with open(lighthouse_output_path, "r") as f:
             results = json.load(f)
         
@@ -63,7 +63,7 @@ def run_lighthouse_analysis(port=5173):
         return None
         
     finally:
-        # Clean up server process
+        # clean up server process
         if server_process:
             print("Shutting down server...")
             server_process.terminate()
