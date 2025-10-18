@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import subprocess
 import json
+import re
 
 load_dotenv()
 
@@ -10,7 +11,7 @@ anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
 # Takes in a filepath and an a11y issue and returns a suggested fix
-def suggest_a11y_fix(filepath: str, a11y_issue: str):
+def suggest_a11y_fixes(filepath: str, a11y_issues: list[str]):
 
     with open(filepath, "r") as f:
         rawfile = f.read().strip()
@@ -28,14 +29,16 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
     You will be acting as a senior software engineer with professional-level expertise in front-end web
     component a11y. You stay up to date with the latest WCAG a11y standards and best
     practices. You will be given the *contents* of a front-end component file (read from a file path)
-    along with a specific a11y issue that was detected on a particular line of code.
+    along with a list of specific a11y issues that were detected on particular lines of code.
 
     Your job is to:
-    1. Analyze the issue and explain why it is problematic.
-    2. Suggest a minimal, correct fix that resolves the issue without breaking existing functionality.
-    3. Return the full, corrected file and an explanation of your reasoning.
+    1. Carefully and thoroughly read through all the code and issues.
+    2. Determine which issues (if any) can be logically grouped together and fixed together.
+    3. For each issue (or issue group), analyze the issues and explain why they are problematic.
+    4. Suggest a minimal, correct fix that resolves the issues without breaking existing functionality.
+    5. Return the full, corrected file and an explanation of your reasoning.
 
-    Always ensure the fix you suggest completely addresses the issue while preserving the original code’s intent
+    Always ensure the fix you suggest completely addresses the issues while preserving the original code's intent
     and functionality.
     """
 
@@ -45,9 +48,9 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
     - If you are not 100% sure on how to address an a11y issue, say "Sorry, I am unable to confidently
       address this issue." and explain why you are unsure.
     - The input you receive will *always* be wrapped in <input></input> tags. The input will be structured with
-      <file></file> and <issue></issue> tags.
+      <file></file> and <issues></issues> tags.
     - The <file></file> block will already be nicely formatted with proper indentation and spacing, similar to the examples.
-    - You should only modify the code inside the <file> block, based on the issue described in the <issue> block.
+    - You should only modify the code inside the <file> block, based on the issues described in the <issues> block.
     - Never invent new issues or modify unrelated parts of the code.
 
     **Important for form controls:**
@@ -76,12 +79,18 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
                 export default TestComponent;
             </file>
 
-            <issue>
-            4:7  error  A control must be associated with a text label  jsx-a11y/control-has-associated-label
-            </issue>
+            <issues>
+            ['4:7  error  A control must be associated with a text label  jsx-a11y/control-has-associated-label']
+            </issues>
         </input>
 
         <response>
+            <grouping>
+            **Group 1: Missing form label (line 4)**
+            - Single issue: Input without label
+            - Fix strategy: Add aria-label attribute
+            </grouping>
+
             <explanation>
             The input element lacks an accessible label. I've added an aria-label attribute which provides
             a text alternative that screen readers can announce, satisfying the accessibility requirement.
@@ -108,6 +117,9 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
                     return (
                         <div>
                             <img src="logo.png" />
+                            <img src="banner.jpg" />
+                            <input type="text" />
+                            <input type="email" />
                         </div>
                     );
                 };
@@ -115,14 +127,29 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
                 export default TestComponent;
             </file>
 
-            <issue>
-            4:7  error  img elements must have an alt prop, either with meaningful text, or an empty string for decorative images  jsx-a11y/alt-text
-            </issue>
+            <issues>
+            ['4:7  error  img elements must have an alt prop, either with meaningful text, or an empty string for decorative images  jsx-a11y/alt-text',
+             '5:7  error  img elements must have an alt prop, either with meaningful text, or an empty string for decorative images  jsx-a11y/alt-text',
+             '6:7  error  A control must be associated with a text label  jsx-a11y/control-has-associated-label',
+             '7:7  error  A control must be associated with a text label  jsx-a11y/control-has-associated-label']
+            </issues>
         </input>
 
         <response>
+            <grouping>
+            **Group 1: Missing alt attributes (lines 4, 5)**
+            - Both images lack alt attributes
+            - Fix strategy: Add meaningful alt text to both images
+            
+            **Group 2: Missing form labels (lines 6, 7)**
+            - Both inputs lack accessible labels
+            - Fix strategy: Add aria-label to both form controls
+            </grouping>
+
             <explanation>
-            The img element lacks an alt attribute. I've added an alt attribute with a meaningful description of the image.
+            The two img elements lack alt attributes. I've added alt attributes with meaningful descriptions.
+            The two input elements lack accessible labels. I've added aria-label attributes to provide text alternatives
+            that screen readers can announce.
             </explanation>
 
             <file>
@@ -130,6 +157,9 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
                     return (
                         <div>
                             <img src="logo.png" alt="Company logo" />
+                            <img src="banner.jpg" alt="Welcome banner" />
+                            <input type="text" aria-label="Name" />
+                            <input type="email" aria-label="Email address" />
                         </div>
                     );
                 };
@@ -154,13 +184,19 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
                 export default TestComponent;
             </file>
 
-            <issue>
-            5:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener.  jsx-a11y/click-events-have-key-events
-            5:7  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element.  jsx-a11y/no-static-element-interactions
-            </issue>
+            <issues>
+            ['5:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener.  jsx-a11y/click-events-have-key-events',
+             '5:7  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element.  jsx-a11y/no-static-element-interactions']
+            </issues>
         </input>
 
         <response>
+            <grouping>
+            **Group 1: Interactive div issues (line 5)**
+            - Two related issues on same element: missing keyboard support and non-semantic element
+            - Fix strategy: Replace div with semantic button element
+            </grouping>
+
             <explanation>
             The div element is being used as an interactive element but lacks proper keyboard support and semantic meaning. 
             I've replaced it with a button element, which provides built-in keyboard navigation, focus management, 
@@ -171,24 +207,32 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
                 const TestComponent = () => {
                     const handleClick = () => console.log('clicked');
                     return (
-                    <div>
-                        <button onClick={handleClick}>Click me</button>
-                    </div>
-                );
-            };
+                        <div>
+                            <button onClick={handleClick}>Click me</button>
+                        </div>
+                    );
+                };
 
-            export default TestComponent;
+                export default TestComponent;
             </file>
         </response>
     </example>
     """
 
     OUTPUT_FORMATTING = f"""
-    Put your entire response in <response></response> tags. Similar to the example, wrap your explanation in
-    <explanation></explanation> tags, and wrap your newly suggested file in <file></file> tags.
+    Put your entire response in <response></response> tags. Structure your response as follows:
+
+    1. First, wrap your grouping analysis in <grouping></grouping> tags. For each group, list:
+       - Which issues belong together (by line number)
+       - Why you're grouping them
+       - What the common fix strategy will be
+
+    2. Then wrap your detailed explanation in <explanation></explanation> tags.
+
+    3. Finally, wrap your newly suggested file in <file></file> tags.
     """
 
-    prompt = f"{TASK_CONTEXT}\n{TASK_DESCRIPTION}\n{EXAMPLES}\n{OUTPUT_FORMATTING}\n\n<input>\n<file>{formatted_file}</file>\n<issue>{a11y_issue}</issue>\n</input>"
+    prompt = f"{TASK_CONTEXT}\n{TASK_DESCRIPTION}\n{EXAMPLES}\n{OUTPUT_FORMATTING}\n\n<input>\n<file>{formatted_file}</file>\n<issues>{a11y_issues}</issues>\n</input>"
 
     messages = [
         {"role": "user", "content": prompt},
@@ -201,7 +245,16 @@ def suggest_a11y_fix(filepath: str, a11y_issue: str):
         messages=messages,
     )
 
-    return response.content[0].text
+    response_text = response.content[0].text
+
+    # Extract and print grouping analysis
+    grouping_match = re.search(r'<grouping>(.*?)</grouping>', response_text, re.DOTALL)
+    if grouping_match:
+        print("\n=== Issue Grouping Analysis ===")
+        print(grouping_match.group(1).strip())
+        print("=" * 40 + "\n")
+
+    return response_text
 
 
 # Takes in a filepath and returns a list of a11y issues from linter
@@ -251,8 +304,6 @@ def get_a11y_issues(filepath: str):
                         # Format like ESLint's normal output
                         issue_str = f"{msg['line']}:{msg['column']}  error  {msg['message']}  {msg['ruleId']}"
                         issues.append(issue_str)
-
-                print(f"Found {len(issues)} a11y issues \n")
 
         return issues, formatted_file
 

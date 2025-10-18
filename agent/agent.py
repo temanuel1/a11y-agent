@@ -1,88 +1,9 @@
-from anthropic import Anthropic
-import os
-from dotenv import load_dotenv
-from tools import get_a11y_issues, suggest_a11y_fix
-import json
-
-load_dotenv()
-
-anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-
-def group_issues_intelligently(issues, file_path):
-    """Use LLM to intelligently group related issues that should be fixed together"""
-    
-    with open(file_path, "r") as f:
-        file_content = f.read()
-    
-    prompt = f"""
-    You are analyzing accessibility issues in a React component. Your job is to intelligently group related 
-    issues that should be fixed together.
-
-    <file>
-        {file_content}
-    </file>
-
-    <issues>
-        {chr(10).join([f"{i+1}. {issue}" for i, issue in enumerate(issues)])}
-    </issues>
-
-    Group these issues intelligently based on:
-    1. Issues affecting the same element (even if on different lines, like a label and its input)
-    2. Issues that are semantically related and should be fixed together
-    3. Issues where fixing one might affect or conflict with another
-
-    Use the group_issues tool to return your grouping.
-    """
-
-    response = anthropic.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-        tools=[
-            {
-                "name": "group_issues",
-                "description": "Group related accessibility issues that should be fixed together",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "groups": {
-                            "type": "array",
-                            "description": "Array of issue groups, where each group is an array of issue numbers",
-                            "items": {
-                                "type": "array",
-                                "items": {
-                                    "type": "integer",
-                                    "description": "Issue number (1-indexed)"
-                                }
-                            }
-                        }
-                    },
-                    "required": ["groups"]
-                }
-            }
-        ],
-        tool_choice={"type": "tool", "name": "group_issues"}
-    )
-    
-    try:
-        tool_use = next(block for block in response.content if block.type == "tool_use")
-        groupings = tool_use.input["groups"]
-        
-        grouped_issues = []
-        for group in groupings:
-            issue_group = [issues[i-1] for i in group]
-            grouped_issues.append(issue_group)
-        
-        return grouped_issues
-        
-    except Exception as e:
-        return [[issue] for issue in issues]
+from tools import get_a11y_issues, suggest_a11y_fixes
+import difflib
 
 
 def extract_tag_content(text, tag):
-    """Extract content between XML tags"""
+    """Extract content between XML tags."""
     start_tag = f"<{tag}>"
     end_tag = f"</{tag}>"
     if start_tag in text and end_tag in text:
@@ -90,40 +11,68 @@ def extract_tag_content(text, tag):
     return None
 
 
-def run(file_path: str):
+def files_are_different(old_content: str, new_content: str) -> bool:
+    """Check if the model's fix actually changed the file."""
+    diff = list(difflib.unified_diff(
+        old_content.splitlines(),
+        new_content.splitlines(),
+        lineterm=""
+    ))
+    return len(diff) > 0
+
+
+def run(file_path: str, max_rounds: int = 5):
     """
-    Fully automated a11y pipeline that directly updates the input file
+    Fully automated a11y pipeline that directly updates the input file.
     """
     with open(file_path, "r") as f:
         original_content = f.read()
+
+    # Make a backup before any changes
     backup_path = file_path.replace(".tsx", "_old.tsx").replace(".jsx", "_old.jsx")
     with open(backup_path, "w") as f:
         f.write(original_content)
 
-    issues, formatted_file = get_a11y_issues(file_path)
+    last_content = original_content  # Track last version
 
-    if not issues:
-        return formatted_file
+    round_num = 1
+    while round_num <= max_rounds:
+        print(f"\nRound {round_num}")
 
-    with open(file_path, "w") as f:
-        f.write(formatted_file)
+        issues, formatted_file = get_a11y_issues(file_path)
+        if not issues:
+            print("No more a11y issues found! File is clean.")
+            break
 
-    issue_groups = group_issues_intelligently(issues, file_path)
-    
-    for i, issue_group in enumerate(issue_groups):
-        combined_issues = "\n".join(issue_group)
-        
-        fix_response = suggest_a11y_fix(file_path, combined_issues)
+        print(f"Found {len(issues)} a11y issues.")
+        with open(file_path, "w") as f:
+            f.write(formatted_file)
 
+        fix_response = suggest_a11y_fixes(file_path, issues)
         fixed_content = extract_tag_content(fix_response, "file")
-        
-        if fixed_content:
-            with open(file_path, "w") as f:
-                f.write(fixed_content)
-            
-            explanation = extract_tag_content(fix_response, "explanation")
-            if explanation:
-                print(f"\n{explanation}")
+
+        if not fixed_content:
+            print("No <file> block found in model response. Stopping.")
+            break
+
+        # Stop if no actual change occurred
+        if not files_are_different(last_content, fixed_content):
+            print("Model did not produce any new changes. Stopping to avoid infinite loop.")
+            break
+
+        with open(file_path, "w") as f:
+            f.write(fixed_content.strip() + "\n")
+
+        explanation = extract_tag_content(fix_response, "explanation")
+        if explanation:
+            print(f"\nFix explanation:\n{explanation}\n")
+
+        # Update for next round
+        last_content = fixed_content
+        round_num += 1
+
+    if round_num > max_rounds:
+        print("Reached maximum number of rounds. Some issues may remain.")
 
 
 if __name__ == "__main__":
