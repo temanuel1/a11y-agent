@@ -4,6 +4,12 @@ from dotenv import load_dotenv
 import subprocess
 import json
 import re
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from server.server import run_lighthouse_analysis
 
 load_dotenv()
 
@@ -311,4 +317,150 @@ def get_a11y_issues(filepath: str):
         print(f"Error: {e}")
         return [], ""
 
-# Hook up server to run lighthouse analysis and return results formatted like linter issues
+def parse_lighthouse_results(lighthouse_json):
+    """
+    Extract failed audits from Lighthouse JSON.
+    """
+    failed_audits = []
+    audits = lighthouse_json.get("audits", {})
+    
+    for audit_id, audit_data in audits.items():
+        if audit_data.get("score") == 0:
+            details = audit_data.get("details", {})
+            items = details.get("items", [])
+            
+            for item in items:
+                node = item.get("node", {})
+                failed_audits.append({
+                    "audit_id": audit_id,
+                    "title": audit_data.get("title", ""),
+                    "selector": node.get("selector", ""),
+                    "snippet": node.get("snippet", ""),
+                    "explanation": node.get("explanation", "")
+                })
+    
+    return failed_audits
+
+def map_lighthouse_to_source(lighthouse_issues, tsx_source_code):
+    """
+    Use Claude to map Lighthouse issues to TSX source lines.
+    """
+    
+    MAPPING_PROMPT = f"""
+    You are mapping Lighthouse accessibility issues to specific lines in React/TSX source code.
+
+    <tsx_source>
+        {tsx_source_code}
+    </tsx_source>
+
+    <lighthouse_issues>
+        {json.dumps(lighthouse_issues, indent=2)}
+    </lighthouse_issues>
+
+    Your task:
+    1. For EACH Lighthouse issue, find the EXACT matching element in the TSX source
+    2. Use ALL available information to match correctly:
+        - Element type (button, p, div, img, etc.)
+        - CSS selector path
+        - Snippet content (especially style attributes and colors)
+        - Explanation field (contains specific color values, sizes, etc.)
+    3. Count line numbers carefully from line 1
+    4. If you cannot confidently match an issue, SKIP it (do not guess)
+
+    CRITICAL MATCHING RULES:
+    - If explanation mentions "background: #007bff", find the element with that EXACT background color
+    - If explanation mentions "color: #aaa", find the element with that EXACT text color
+    - Match element TYPE first (button vs p vs div), then match by styles
+    - A color-contrast issue on a <button> should NOT map to a <p> tag
+    - When in doubt about which element, look at the "snippet" field for exact HTML
+
+    Output ONLY valid JSON array (no other text):
+    [
+    {{
+        "line": <line_number>,
+        "column": 7,
+        "message": "<concise description>",
+        "rule": "lighthouse/<audit_id>"
+    }}
+    ]
+
+    Example of CORRECT mapping:
+    - Lighthouse: "color-contrast issue, snippet: <button style='background: #007bff'>"
+    - TSX has button on line 62 with background: "#007bff"
+    - Correct output: {{"line": 62, "message": "...", "rule": "lighthouse/color-contrast"}}
+
+    Example of INCORRECT mapping:
+    - Lighthouse: "color-contrast issue, snippet: <button style='background: #007bff'>"  
+    - TSX has <p> on line 80 with color: "#4a4a4a"
+    - WRONG to map to line 80 - different element type and different style!
+    """
+    
+    response = anthropic.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        temperature=0,
+        messages=[{"role": "user", "content": MAPPING_PROMPT}]
+    )
+    
+    response_text = response.content[0].text
+    
+    # Extract JSON from response
+    json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+    if json_match:
+        try:
+            mapped_issues = json.loads(json_match.group(0))
+            
+            # Log for debugging
+            print(f"\n[DEBUG] LLM mapped {len(mapped_issues)} issues")
+            for issue in mapped_issues:
+                print(f"  Line {issue.get('line')}: {issue.get('rule')}")
+            
+            return mapped_issues
+        except json.JSONDecodeError as e:
+            print(f"Error: Could not parse LLM response as JSON: {e}")
+            return []
+    
+    print("Error: No JSON array found in LLM response")
+    return []
+
+def normalize_lighthouse_issues(mapped_issues):
+    """
+    Convert to linter-style format.
+    """
+    normalized = []
+    for issue in mapped_issues:
+        line = issue.get("line", 0)
+        column = issue.get("column", 7)
+        message = issue.get("message", "")
+        rule = issue.get("rule", "lighthouse/unknown")
+        issue_str = f"{line}:{column}  error  {message}  {rule}"
+        normalized.append(issue_str)
+    return normalized
+
+
+def get_lighthouse_issues(tsx_file_path):
+    """
+    High-level function that orchestrates everything.
+    Similar to get_a11y_issues() but for runtime analysis.
+    """
+    # Import server function
+    import sys
+    sys.path.append('../server')
+    
+    # Run lighthouse (returns raw JSON)
+    lighthouse_json = run_lighthouse_analysis()
+    
+    # Parse failures
+    failed_audits = parse_lighthouse_results(lighthouse_json)
+    
+    # Read TSX source
+    with open(tsx_file_path, 'r') as f:
+        tsx_source = f.read()
+    
+    # Map to lines
+    mapped_issues = map_lighthouse_to_source(failed_audits, tsx_source)
+    
+    # Normalize to linter format
+    normalized_issues = normalize_lighthouse_issues(mapped_issues)
+    
+    return normalized_issues

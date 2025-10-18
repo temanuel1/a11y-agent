@@ -25,3 +25,10 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+.lighthouse-reports/
+.backups/
+*_old.tsx
+*_old.jsx
+server/template/lighthouse-results.json
+server/template/test.tsx

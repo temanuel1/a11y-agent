@@ -27,7 +27,12 @@ def run_lighthouse_analysis(port=5173):
         
         # Run Lighthouse
         print("Running Lighthouse analysis...")
-        lighthouse_output_path = os.path.join(os.path.dirname(__file__), "lighthouse-results.json")
+        lighthouse_output_path = os.path.join(
+            os.path.dirname(__file__),
+            "../.lighthouse-reports/lighthouse-results.json"
+            
+            )
+        os.makedirs(os.path.dirname(lighthouse_output_path), exist_ok=True)
         
         lighthouse_process = subprocess.run(
             [
