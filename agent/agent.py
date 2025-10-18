@@ -1,5 +1,7 @@
 from tools import get_a11y_issues, suggest_a11y_fixes
+import shutil
 import difflib
+import os
 
 
 def extract_tag_content(text, tag):
@@ -73,6 +75,9 @@ def run(file_path: str, max_rounds: int = 5):
 
     if round_num > max_rounds:
         print("Reached maximum number of rounds. Some issues may remain.")
+
+    server_template_path = os.path.join("../server/template", os.path.basename(file_path))
+    shutil.copy(file_path, server_template_path)
 
 
 if __name__ == "__main__":

@@ -260,7 +260,7 @@ def suggest_a11y_fixes(filepath: str, a11y_issues: list[str]):
 # Takes in a filepath and returns a list of a11y issues from linter
 def get_a11y_issues(filepath: str):
     """
-    Takes in a JS/JSX file path and returns a list of accessibility issues
+    Takes in a TSX/JSX file path and returns a list of accessibility issues
     detected by ESLint, plus the formatted file.
 
     Returns:
@@ -310,3 +310,5 @@ def get_a11y_issues(filepath: str):
     except Exception as e:
         print(f"Error: {e}")
         return [], ""
+
+# Hook up server to run lighthouse analysis and return results formatted like linter issues
